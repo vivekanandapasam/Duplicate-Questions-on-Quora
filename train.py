@@ -118,6 +118,7 @@ class Network(nn.Module):
                 # print(q1_out.shape)
                 # print(q2_out.shape)
 
+                #TODO: Add difference and other inputs here
                 nn_input = torch.cat((q1_out, q2_out))
                 x = self.hidden[0](nn_input)
                 # print('nn hiden 0 out ', x.shape)
