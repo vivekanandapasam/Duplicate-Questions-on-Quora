@@ -93,66 +93,69 @@ class Network(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=0)
 
-    def forward(self, all_inputs, wordToVec):
-        # lstm_hidden = (torch.randn(1, self.BATCH_SIZE, self.LSTM_OUTPUT), torch.randn(1, self.BATCH_SIZE, self.LSTM_OUTPUT))
-        ## all_inputs = [q1, q2, is_dup]
-        for _ in range(self.EPOCHS):
-            start_time = time.time()
-            loss = 0
-            criterion = nn.CrossEntropyLoss()
-            optimizer = torch.optim.Adam(self.parameters(), lr = 0.001)
-            target = torch.LongTensor([[0], [1]])
-            for ind, (q1, q2, is_dup) in enumerate(all_inputs):
+def forward(model, all_inputs, wordToVec, proc_ind):
+    # lstm_hidden = (torch.randn(1, self.BATCH_SIZE, self.LSTM_OUTPUT), torch.randn(1, self.BATCH_SIZE, self.LSTM_OUTPUT))
+    ## all_inputs = [q1, q2, is_dup]
+    BATCH_SIZE = 100
+    for _ in range(model.EPOCHS):
+        start_time = time.time()
+        loss = 0
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
+        target = torch.LongTensor([[0], [1]])
+        for ind, (q1, q2, is_dup) in enumerate(all_inputs[BATCH_SIZE*proc_ind : BATCH_SIZE*proc_ind + BATCH_SIZE-1]):
 
-                ## q1
-                q_vec = [wordToVec[tok] for tok in q1.split(' ') if tok in wordToVec.keys()]
-                if (len(q_vec)) == 0: continue
-                q1_out = self.lstm_train(q_vec)
-                del q_vec
-                ## q2
-                q_vec = [wordToVec[tok] for tok in q2.split(' ') if tok in wordToVec.keys()]
-                if (len(q_vec)) == 0: continue
-                q2_out = self.lstm_train(q_vec)
-                del q_vec
+            ## q1
+            q_vec = [wordToVec[tok] for tok in q1.split(' ') if tok in wordToVec.keys()]
+            if (len(q_vec)) == 0: continue
+            q1_out = model.lstm_train(q_vec)
+            del q_vec
+            ## q2
+            q_vec = [wordToVec[tok] for tok in q2.split(' ') if tok in wordToVec.keys()]
+            if (len(q_vec)) == 0: continue
+            q2_out = model.lstm_train(q_vec)
+            del q_vec
 
-                # print(q1_out.shape)
-                # print(q2_out.shape)
+            # print(q1_out.shape)
+            # print(q2_out.shape)
 
-                nn_input = torch.cat((q1_out, q2_out))
-                x = self.hidden[0](nn_input)
-                # print('nn hiden 0 out ', x.shape)
-                x = self.sigmoid(x)
-                # print('sig out ', x.shape)
-                x = self.hidden[1](x)
-                x = self.softmax(x)
-                # print('final out', x)
+            nn_input = torch.cat((q1_out, q2_out))
+            x = model.hidden[0](nn_input)
+            # print('nn hiden 0 out ', x.shape)
+            x = model.sigmoid(x)
+            # print('sig out ', x.shape)
+            x = model.hidden[1](x)
+            x = model.softmax(x)
+            # print('final out', x)
 
-                ## Accumulating loss
-                loss += criterion(x.view(1, -1), target[is_dup])
+            ## Accumulating loss
+            loss += criterion(x.view(1, -1), target[is_dup])
 
-                ### Calculate loss for every 100 pairs
-                if ind % 100 == 99:
-                    print('pair index', ind, 'loss', loss)
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-                    loss = 0
-                if ind % 10000 == 9999 or ind == len(all_inputs) - 1:
-                    torch.save(self, f'./models/model_{ind}.pt')
-                    print('Saved after time: ', time.time() - start_time, ' sec')
+        print('pair index', ind, 'loss', loss)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        loss = 0
+        # if (proc_ind * BATCH_SIZE) % 10000 == 9999 or ind == len(all_inputs) - 1:
+        #     torch.save(model, f'./models/model_{ind}.pt')
+        #     print('Saved after time: ', time.time() - start_time, ' sec')
 
-            print('Epoch run time: ', time.time() - start_time, ' sec')
-
-
-    def lstm_train(self, q_vec):
-        lstm_hidden = (torch.zeros(1, self.BATCH_SIZE, self.LSTM_OUTPUT), torch.zeros(1, self.BATCH_SIZE, self.LSTM_OUTPUT))
-        temp_q_vec = [q_vec]
-        # print(len(temp_q_vec[0]))
-        out, lstm_hidden = self.lstm(torch.tensor(temp_q_vec), lstm_hidden)
-        return out[0][-1]
+        # print('Epoch run time: ', time.time() - start_time, ' sec')
 
 
-## Training
-model = Network()
-model.train()
-model.forward(train_data, wordToVec)
+def lstm_train(model, q_vec):
+    lstm_hidden = (torch.zeros(1, model.BATCH_SIZE, model.LSTM_OUTPUT), torch.zeros(1, model.BATCH_SIZE, model.LSTM_OUTPUT))
+    temp_q_vec = [q_vec]
+    # print(len(temp_q_vec[0]))
+    out, lstm_hidden = model.lstm(torch.tensor(temp_q_vec), lstm_hidden)
+    return out[0][-1]
+
+if __name__ == '__main__':
+    ## Training
+    model = Network()
+    model.share_memory()
+    model.train()
+    for epoch in model.EPOCHS:
+        processes = []
+        for i in range(int(len(train_data)/100)+1):
+            forward(model, train_data, wordToVec, i)
