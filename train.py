@@ -28,6 +28,7 @@ if LOAD_TRAIN_TEST_PICKLE:
     test_data = pickle.load(fi)
     fi.close()
     print('Loaded test pickle..')
+    print('test size: ', len(test_data))
 
 else:
     import pandas as pd
@@ -83,77 +84,131 @@ class Network(nn.Module):
 
         self.LSTM_INPUT = 300
         self.LSTM_OUTPUT = 300
-        self.BATCH_SIZE = 1
+        self.LSTM_BATCH_SIZE = 1
         self.NN_HIDDEN_SIZE = 128
         self.EPOCHS = 10
 
         self.lstm = nn.LSTM(self.LSTM_INPUT, self.LSTM_OUTPUT, 1, bias = False, batch_first = True)
 
-        self.hidden = [nn.Linear(self.LSTM_OUTPUT * 2, self.NN_HIDDEN_SIZE), nn.Linear(self.NN_HIDDEN_SIZE, 2)]
+        # self.hidden = [nn.Linear(self.LSTM_OUTPUT * 2, self.NN_HIDDEN_SIZE), nn.Linear(self.NN_HIDDEN_SIZE, 2)]
+        self.hidden = [nn.Linear(self.LSTM_OUTPUT * 4 + 3, self.NN_HIDDEN_SIZE), nn.Linear(self.NN_HIDDEN_SIZE, 2)]
+        ### actual of lstm outputs + sq_diff + hadamard product + lengths of lstm outputs + sq_euclid_dist
         self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=0)
 
-    def forward(self, all_inputs, wordToVec):
-        # lstm_hidden = (torch.randn(1, self.BATCH_SIZE, self.LSTM_OUTPUT), torch.randn(1, self.BATCH_SIZE, self.LSTM_OUTPUT))
+    def forward(self, all_inputs, test_data, wordToVec):
+        # lstm_hidden = (torch.randn(1, self.LSTM_BATCH_SIZE, self.LSTM_OUTPUT), torch.randn(1, self.LSTM_BATCH_SIZE, self.LSTM_OUTPUT))
         ## all_inputs = [q1, q2, is_dup]
-        for _ in range(self.EPOCHS):
+        target = torch.LongTensor([[0], [1]])
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(self.parameters(), lr = 0.001)
+        for epoch_num in range(self.EPOCHS):
             start_time = time.time()
             loss = 0
-            criterion = nn.CrossEntropyLoss()
-            optimizer = torch.optim.Adam(self.parameters(), lr = 0.001)
-            target = torch.LongTensor([[0], [1]])
             for ind, (q1, q2, is_dup) in enumerate(all_inputs):
 
-                ## q1
-                q_vec = [wordToVec[tok] for tok in q1.split(' ') if tok in wordToVec.keys()]
-                if (len(q_vec)) == 0: continue
-                q1_out = self.lstm_train(q_vec)
-                del q_vec
-                ## q2
-                q_vec = [wordToVec[tok] for tok in q2.split(' ') if tok in wordToVec.keys()]
-                if (len(q_vec)) == 0: continue
-                q2_out = self.lstm_train(q_vec)
-                del q_vec
-
-                # print(q1_out.shape)
-                # print(q2_out.shape)
-
-                #TODO: Add difference and other inputs here
-                nn_input = torch.cat((q1_out, q2_out))
-                x = self.hidden[0](nn_input)
-                # print('nn hiden 0 out ', x.shape)
-                x = self.sigmoid(x)
-                # print('sig out ', x.shape)
-                x = self.hidden[1](x)
-                x = self.softmax(x)
+                x = self.predict(q1, q2, wordToVec)
+                if not torch.is_tensor(x): continue
                 # print('final out', x)
 
                 ## Accumulating loss
                 loss += criterion(x.view(1, -1), target[is_dup])
+                # print('loss ', loss)
 
                 ### Calculate loss for every 100 pairs
-                if ind % 100 == 99:
+                BATCH_SIZE = 500
+                if ind % BATCH_SIZE == BATCH_SIZE-1:
                     print('pair index', ind, 'loss', loss)
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
                     loss = 0
-                if ind % 10000 == 9999 or ind == len(all_inputs) - 1:
-                    torch.save(self, f'./models/model_{ind}.pt')
+                    # print('Current run time: ', time.time() - start_time, ' sec')
+                    self.test(test_data, wordToVec)
+                if ind % 10000 == 9999:
+                    torch.save(self.state_dict(), f'./models/model_{ind}.pt')
+                    print('Saved after time: ', time.time() - start_time, ' sec')
+                if ind == len(all_inputs) - 1:
+                    torch.save(self.state_dict(), f'./models/model_epoch_{epoch_num}.pt')
                     print('Saved after time: ', time.time() - start_time, ' sec')
 
             print('Epoch run time: ', time.time() - start_time, ' sec')
 
+    ## Given input, get output frm network
+    def predict(self, q1, q2, wordToVec):
+        ## q1
+        q_vec = [wordToVec[tok] for tok in q1.split(' ') if tok in wordToVec.keys()]
+        if (len(q_vec)) == 0: return None
+        q1_len = torch.Tensor([len(q_vec)])
+        q1_out = self.lstm_train(q_vec)
+        del q_vec
+        ## q2
+        q_vec = [wordToVec[tok] for tok in q2.split(' ') if tok in wordToVec.keys()]
+        if (len(q_vec)) == 0: return None
+        q2_len = torch.Tensor(len([q_vec]))
+        q2_out = self.lstm_train(q_vec)
+
+        # print(q1_out.shape)
+        # print(q1_len)
+        # print(q2_out.shape)
+        ## Other inputs to dense layers
+        sq_diff = (torch.sub(q1_out, q2_out)) ** 2
+        sq_euc_dist = torch.sum(sq_diff).view(-1)
+        # print(sq_euc_dist.shape)
+        had_prod = torch.mul(q1_out, q2_out)
+
+        # Add difference and other inputs here
+        nn_input = torch.cat((q1_out, q2_out, q1_len, q2_len, sq_diff, sq_euc_dist, had_prod))
+        # nn_input = torch.cat((q1_out, q2_out))
+        x = self.hidden[0](nn_input)
+        # print('nn hiden 0 out ', x.shape)
+        x = self.sigmoid(x)
+        # print('sig out ', x.shape)
+        x = self.hidden[1](x)
+        x = self.softmax(x)
+        return x
+
 
     def lstm_train(self, q_vec):
-        lstm_hidden = (torch.zeros(1, self.BATCH_SIZE, self.LSTM_OUTPUT), torch.zeros(1, self.BATCH_SIZE, self.LSTM_OUTPUT))
+        lstm_hidden = (torch.zeros(1, self.LSTM_BATCH_SIZE, self.LSTM_OUTPUT), torch.zeros(1, self.LSTM_BATCH_SIZE, self.LSTM_OUTPUT))
         temp_q_vec = [q_vec]
         # print(len(temp_q_vec[0]))
         out, lstm_hidden = self.lstm(torch.tensor(temp_q_vec), lstm_hidden)
         return out[0][-1]
 
+    # ## Testing on test data for accuracy
+    # def test(self, test_data, wordToVec):
+    #     # start_time = time.time()
+    #     # print('test len ', len(test_data))
+    #     target = torch.LongTensor([[0], [1]])
+    #     # criterion = nn.CrossEntropyLoss()
+    #     false_pos = 0
+    #     false_neg = 0
+    #     correct = 0
+    #     # loss = 0
+    #     with torch.no_grad():
+    #         for (q1, q2, is_dup) in (test_data):
+    #             x = self.predict(q1, q2, wordToVec)
+    #             # loss += criterion(x.view(1, -1), target[is_dup])
+    #             if is_dup:
+    #                 if(x[0] > x[1]): false_neg += 1
+    #                 else : correct += 1
+    #             else:
+    #                 if(x[0] < x[1]): false_pos += 1
+    #                 else : correct += 1
+
+    #     print('********** Testing ***********')
+    #     print('Accuracy : ', correct/len(test_data), ' %')
+    #     print('False pos : ', false_pos/len(test_data), ' %')
+    #     print('False neg : ', false_neg/len(test_data), ' %')
+    #     # print('Loss on test data: ', loss.item())
+    #     print('******************************')
+    #     # print('Test ran for time : ', time.time() - start_time, ' sec')
+
 
 ## Training
 model = Network()
+## Loading saved model
+# model.load_state_dict(torch.load(f'./models/model_316435.pt'))
 model.train()
-model.forward(train_data, wordToVec)
+model.forward(train_data, test_data, wordToVec)
