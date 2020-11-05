@@ -4,6 +4,7 @@ TRAIN_DATA_PICKLE = './data/data_pickles/train_6b.pkl'
 TEST_DATA_PICKLE = './data/data_pickles/test_6b.pkl'
 
 import time
+import sys
 
 ## Loading word to vector dict
 print('Loading wordToVec pickle..')
@@ -74,6 +75,7 @@ else:
 
 import torch
 from torch import nn
+import torch.multiprocessing as mp
 torch.manual_seed(0)
 
 ## Creating model
@@ -93,54 +95,48 @@ class Network(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=0)
 
-def forward(model, all_inputs, wordToVec, proc_ind):
+def forward(model, all_inputs, wordToVec, proc_ind, BATCH_SIZE, optimizer):
     # lstm_hidden = (torch.randn(1, self.BATCH_SIZE, self.LSTM_OUTPUT), torch.randn(1, self.BATCH_SIZE, self.LSTM_OUTPUT))
     ## all_inputs = [q1, q2, is_dup]
-    BATCH_SIZE = 100
-    for _ in range(model.EPOCHS):
-        start_time = time.time()
-        loss = 0
-        criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
-        target = torch.LongTensor([[0], [1]])
-        for ind, (q1, q2, is_dup) in enumerate(all_inputs[BATCH_SIZE*proc_ind : BATCH_SIZE*proc_ind + BATCH_SIZE-1]):
 
-            ## q1
-            q_vec = [wordToVec[tok] for tok in q1.split(' ') if tok in wordToVec.keys()]
-            if (len(q_vec)) == 0: continue
-            q1_out = model.lstm_train(q_vec)
-            del q_vec
-            ## q2
-            q_vec = [wordToVec[tok] for tok in q2.split(' ') if tok in wordToVec.keys()]
-            if (len(q_vec)) == 0: continue
-            q2_out = model.lstm_train(q_vec)
-            del q_vec
+    loss = 0
+    criterion = nn.CrossEntropyLoss()
+    target = torch.LongTensor([[0], [1]])
+    for ind, (q1, q2, is_dup) in enumerate(all_inputs[BATCH_SIZE*proc_ind : BATCH_SIZE*proc_ind + BATCH_SIZE]):
 
-            # print(q1_out.shape)
-            # print(q2_out.shape)
+        ## q1
+        q_vec = [wordToVec[tok] for tok in q1.split(' ') if tok in wordToVec.keys()]
+        if (len(q_vec)) == 0: continue
+        q1_out = lstm_train(model, q_vec)
+        del q_vec
+        ## q2
+        q_vec = [wordToVec[tok] for tok in q2.split(' ') if tok in wordToVec.keys()]
+        if (len(q_vec)) == 0: continue
+        q2_out = lstm_train(model, q_vec)
+        del q_vec
 
-            nn_input = torch.cat((q1_out, q2_out))
-            x = model.hidden[0](nn_input)
-            # print('nn hiden 0 out ', x.shape)
-            x = model.sigmoid(x)
-            # print('sig out ', x.shape)
-            x = model.hidden[1](x)
-            x = model.softmax(x)
-            # print('final out', x)
+        # print(q1_out.shape)
+        # print(q2_out.shape)
 
-            ## Accumulating loss
-            loss += criterion(x.view(1, -1), target[is_dup])
+        nn_input = torch.cat((q1_out, q2_out))
+        x = model.hidden[0](nn_input)
+        # print('nn hiden 0 out ', x.shape)
+        x = model.sigmoid(x)
+        # print('sig out ', x.shape)
+        x = model.hidden[1](x)
+        x = model.softmax(x)
+        # print('final out', x)
 
-        print('pair index', ind, 'loss', loss)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        loss = 0
+        ## Accumulating loss
+        loss += criterion(x.view(1, -1), target[is_dup])
+
+    print('pair index', ind, 'loss', loss)
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    loss = 0
         # if (proc_ind * BATCH_SIZE) % 10000 == 9999 or ind == len(all_inputs) - 1:
-        #     torch.save(model, f'./models/model_{ind}.pt')
-        #     print('Saved after time: ', time.time() - start_time, ' sec')
 
-        # print('Epoch run time: ', time.time() - start_time, ' sec')
 
 
 def lstm_train(model, q_vec):
@@ -155,7 +151,26 @@ if __name__ == '__main__':
     model = Network()
     model.share_memory()
     model.train()
-    for epoch in model.EPOCHS:
+    BATCH_SIZE = 100
+    # print(sys.argv[1])
+    for epoch in range(model.EPOCHS):
+        start_time = time.time()
         processes = []
+        optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
+        # for i in range(int(3)):
         for i in range(int(len(train_data)/100)+1):
-            forward(model, train_data, wordToVec, i)
+            print('Started process ', i)
+            p = mp.Process(target=forward,args=(model, train_data, wordToVec, i, BATCH_SIZE, optimizer))
+            p.start()
+            processes.append(p)
+
+            Num_Parallel = 2 if len(sys.argv) < 2 else int(sys.argv[1]) ## take command line argument if passed
+            if i % Num_Parallel == Num_Parallel - 1: ### Run only Num_Parallel processes at a time
+                for p in processes:
+                    p.join()
+                processes.clear()
+                print('Batch run time: ', time.time() - start_time, ' sec')
+
+        print('Epoch run time: ', time.time() - start_time, ' sec')
+        torch.save(model, f'./models/model_parallel_{epoch}.pt')
+        print('Saved after time: ', time.time() - start_time, ' sec')
