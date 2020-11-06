@@ -5,6 +5,8 @@ Finding Duplicate Questions on Quora
 
 * GloVe : https://github.com/stanfordnlp/GloVe
 
+* Presentation : https://docs.google.com/presentation/d/1sFNp2fqcNtPc4Wnpl50CgJRse-bthCU168SSn-i5YMI/edit?usp=sharing
+
 ## Setup
 
 For creating filtered.tsv
