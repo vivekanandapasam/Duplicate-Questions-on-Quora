@@ -91,7 +91,7 @@ class Network(nn.Module):
         self.lstm = nn.LSTM(self.LSTM_INPUT, self.LSTM_OUTPUT, 1, bias = False, batch_first = True)
 
         # self.hidden = [nn.Linear(self.LSTM_OUTPUT * 2, self.NN_HIDDEN_SIZE), nn.Linear(self.NN_HIDDEN_SIZE, 2)]
-        self.hidden = [nn.Linear(self.LSTM_OUTPUT * 4 + 3, self.NN_HIDDEN_SIZE), nn.Linear(self.NN_HIDDEN_SIZE, 2)]
+        self.hidden = [nn.Linear(self.LSTM_OUTPUT * 4, self.NN_HIDDEN_SIZE), nn.Linear(self.NN_HIDDEN_SIZE, 2)]
         ### actual of lstm outputs + sq_diff + hadamard product + lengths of lstm outputs + sq_euclid_dist
         self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=0)
@@ -101,9 +101,14 @@ class Network(nn.Module):
         ## all_inputs = [q1, q2, is_dup]
         target = torch.LongTensor([[0], [1]])
         criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(self.parameters(), lr = 0.001)
+        CUR_LR = 0.0006
+        LR_DECAY = 0.9
+        WEIGHT_DECAY = 0.2
+
+        BATCH_SIZE = 500
         for epoch_num in range(self.EPOCHS):
             start_time = time.time()
+            optimizer = torch.optim.Adam(self.parameters(), lr = CUR_LR, weight_decay = WEIGHT_DECAY)
             loss = 0
             for ind, (q1, q2, is_dup) in enumerate(all_inputs):
 
@@ -116,7 +121,6 @@ class Network(nn.Module):
                 # print('loss ', loss)
 
                 ### Calculate loss for every 100 pairs
-                BATCH_SIZE = 500
                 if ind % BATCH_SIZE == BATCH_SIZE-1:
                     print('pair index', ind, 'loss', loss)
                     optimizer.zero_grad()
@@ -124,28 +128,29 @@ class Network(nn.Module):
                     optimizer.step()
                     loss = 0
                     # print('Current run time: ', time.time() - start_time, ' sec')
-                    self.test(test_data, wordToVec)
+                    # self.test(test_data, wordToVec)
                 if ind % 10000 == 9999:
-                    torch.save(self.state_dict(), f'./models/model_{ind}.pt')
-                    print('Saved after time: ', time.time() - start_time, ' sec')
-                if ind == len(all_inputs) - 1:
-                    torch.save(self.state_dict(), f'./models/model_epoch_{epoch_num}.pt')
+                    torch.save(self.state_dict(), './models/model_' + str(ind) + '.pt')
                     print('Saved after time: ', time.time() - start_time, ' sec')
 
-            print('Epoch run time: ', time.time() - start_time, ' sec')
+            torch.save(self.state_dict(), './models/model_epoch_' + str(epoch_num) + '_' + str(CUR_LR)
+                + '_' + str(self.NN_HIDDEN_SIZE)+ '_' + str(self.LSTM_OUTPUT) + '.pt')
+            print('Model saved! Epoch run time: ', time.time() - start_time, ' sec')
+            ## Adding decay to learning rate
+            CUR_LR *= LR_DECAY
 
     ## Given input, get output frm network
     def predict(self, q1, q2, wordToVec):
         ## q1
         q_vec = [wordToVec[tok] for tok in q1.split(' ') if tok in wordToVec.keys()]
         if (len(q_vec)) == 0: return None
-        q1_len = torch.Tensor([len(q_vec)])
+        # q1_len = torch.Tensor([len(q_vec)])
         q1_out = self.lstm_train(q_vec)
         del q_vec
         ## q2
         q_vec = [wordToVec[tok] for tok in q2.split(' ') if tok in wordToVec.keys()]
         if (len(q_vec)) == 0: return None
-        q2_len = torch.Tensor(len([q_vec]))
+        # q2_len = torch.Tensor(len([q_vec]))
         q2_out = self.lstm_train(q_vec)
 
         # print(q1_out.shape)
@@ -153,12 +158,13 @@ class Network(nn.Module):
         # print(q2_out.shape)
         ## Other inputs to dense layers
         sq_diff = (torch.sub(q1_out, q2_out)) ** 2
-        sq_euc_dist = torch.sum(sq_diff).view(-1)
+        # sq_euc_dist = torch.sum(sq_diff).view(-1)
         # print(sq_euc_dist.shape)
         had_prod = torch.mul(q1_out, q2_out)
 
         # Add difference and other inputs here
-        nn_input = torch.cat((q1_out, q2_out, q1_len, q2_len, sq_diff, sq_euc_dist, had_prod))
+        nn_input = torch.cat((q1_out, q2_out, sq_diff, had_prod))
+        # nn_input = torch.cat((q1_out, q2_out, q1_len, q2_len, sq_diff, sq_euc_dist, had_prod))
         # nn_input = torch.cat((q1_out, q2_out))
         x = self.hidden[0](nn_input)
         # print('nn hiden 0 out ', x.shape)
