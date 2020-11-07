@@ -86,17 +86,17 @@ class Network(nn.Module):
         self.LSTM_OUTPUT = 300
         self.LSTM_BATCH_SIZE = 1
         self.NN_HIDDEN_SIZE = 128
-        self.EPOCHS = 10
+        self.EPOCHS = 20
 
         self.lstm = nn.LSTM(self.LSTM_INPUT, self.LSTM_OUTPUT, 1, bias = False, batch_first = True)
 
         # self.hidden = [nn.Linear(self.LSTM_OUTPUT * 2, self.NN_HIDDEN_SIZE), nn.Linear(self.NN_HIDDEN_SIZE, 2)]
-        self.hidden = [nn.Linear(self.LSTM_OUTPUT * 4, self.NN_HIDDEN_SIZE), nn.Linear(self.NN_HIDDEN_SIZE, 2)]
+        self.dense = [nn.Linear(self.LSTM_OUTPUT * 4, self.NN_HIDDEN_SIZE), nn.Linear(self.NN_HIDDEN_SIZE, 2)]
         ### actual of lstm outputs + sq_diff + hadamard product + lengths of lstm outputs + sq_euclid_dist
         self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=0)
 
-    def forward(self, all_inputs, test_data, wordToVec):
+    def forward(self, all_inputs, test_data, wordToVec, start_epoch, BATCH_SIZE):
         # lstm_hidden = (torch.randn(1, self.LSTM_BATCH_SIZE, self.LSTM_OUTPUT), torch.randn(1, self.LSTM_BATCH_SIZE, self.LSTM_OUTPUT))
         ## all_inputs = [q1, q2, is_dup]
         target = torch.LongTensor([[0], [1]])
@@ -105,8 +105,9 @@ class Network(nn.Module):
         LR_DECAY = 0.9
         WEIGHT_DECAY = 0.2
 
-        BATCH_SIZE = 500
-        for epoch_num in range(self.EPOCHS):
+        print('Running for config : batch size ', BATCH_SIZE, ' , epochs ', self.EPOCHS, ' lstm hidden size ', self.LSTM_OUTPUT
+            , ' nn hidden size ', self.NN_HIDDEN_SIZE, ' for ', len(self.dense), ' layers')
+        for epoch_num in range(start_epoch, start_epoch + self.EPOCHS):
             start_time = time.time()
             optimizer = torch.optim.Adam(self.parameters(), lr = CUR_LR, weight_decay = WEIGHT_DECAY)
             loss = 0
@@ -133,7 +134,7 @@ class Network(nn.Module):
                     torch.save(self.state_dict(), './models/model_' + str(ind) + '.pt')
                     print('Saved after time: ', time.time() - start_time, ' sec')
 
-            torch.save(self.state_dict(), './models/model_epoch_' + str(epoch_num) + '_' + str(CUR_LR)
+            torch.save(self.state_dict(), './models/b' + str(BATCH_SIZE) + '/model_epoch_' + str(epoch_num)
                 + '_' + str(self.NN_HIDDEN_SIZE)+ '_' + str(self.LSTM_OUTPUT) + '.pt')
             print('Model saved! Epoch run time: ', time.time() - start_time, ' sec')
             ## Adding decay to learning rate
@@ -166,11 +167,11 @@ class Network(nn.Module):
         nn_input = torch.cat((q1_out, q2_out, sq_diff, had_prod))
         # nn_input = torch.cat((q1_out, q2_out, q1_len, q2_len, sq_diff, sq_euc_dist, had_prod))
         # nn_input = torch.cat((q1_out, q2_out))
-        x = self.hidden[0](nn_input)
+        x = self.dense[0](nn_input)
         # print('nn hiden 0 out ', x.shape)
         x = self.sigmoid(x)
         # print('sig out ', x.shape)
-        x = self.hidden[1](x)
+        x = self.dense[1](x)
         x = self.softmax(x)
         return x
 
@@ -211,10 +212,22 @@ class Network(nn.Module):
     #     print('******************************')
     #     # print('Test ran for time : ', time.time() - start_time, ' sec')
 
+import sys
+import os
 
+BATCH_SIZE = 500
 ## Training
 model = Network()
+start_epoch = 0
 ## Loading saved model
-# model.load_state_dict(torch.load(f'./models/model_316435.pt'))
+if (len(sys.argv) >= 2) :
+    print('Starting with model ' + sys.argv[1], ' at epoch ', sys.argv[2], ' with batchsize ', BATCH_SIZE)
+    model.load_state_dict(torch.load(sys.argv[1]))
+    start_epoch = int(sys.argv[2])
+    BATCH_SIZE = int(sys.argv[3])
+
+
+## Creating folder for storing models BATCH SIZE
+os.system("mkdir models/b" + str(BATCH_SIZE))
 model.train()
-model.forward(train_data, test_data, wordToVec)
+model.forward(train_data, test_data, wordToVec, start_epoch, BATCH_SIZE)
