@@ -79,14 +79,15 @@ torch.manual_seed(0)
 
 ## Creating model
 class Network(nn.Module):
-    def __init__(self):
+    def __init__(self, lstm_out_size, nn_hid_size, epochs, batch_size):
         super().__init__()
 
         self.LSTM_INPUT = 300
-        self.LSTM_OUTPUT = 300
+        self.LSTM_OUTPUT = lstm_out_size
         self.LSTM_BATCH_SIZE = 1
-        self.NN_HIDDEN_SIZE = 128
-        self.EPOCHS = 20
+        self.NN_HIDDEN_SIZE = nn_hid_size
+        self.EPOCHS = epochs
+        self.BATCH_SIZE = batch_size
 
         self.lstm = nn.LSTM(self.LSTM_INPUT, self.LSTM_OUTPUT, 1, bias = False, batch_first = True)
 
@@ -96,16 +97,16 @@ class Network(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=0)
 
-    def forward(self, all_inputs, test_data, wordToVec, start_epoch, BATCH_SIZE):
+    def forward(self, all_inputs, test_data, wordToVec, start_epoch, folder_prefix):
         # lstm_hidden = (torch.randn(1, self.LSTM_BATCH_SIZE, self.LSTM_OUTPUT), torch.randn(1, self.LSTM_BATCH_SIZE, self.LSTM_OUTPUT))
         ## all_inputs = [q1, q2, is_dup]
         target = torch.LongTensor([[0], [1]])
         criterion = nn.CrossEntropyLoss()
-        CUR_LR = 0.0006
+        CUR_LR = 0.006
         LR_DECAY = 0.9
         WEIGHT_DECAY = 0.2
 
-        print('Running for config : batch size ', BATCH_SIZE, ' , epochs ', self.EPOCHS, ' lstm hidden size ', self.LSTM_OUTPUT
+        print('Running for config : batch size ', self.BATCH_SIZE, ' , epochs ', self.EPOCHS, ' lstm hidden size ', self.LSTM_OUTPUT
             , ' nn hidden size ', self.NN_HIDDEN_SIZE, ' for ', len(self.dense), ' layers')
         for epoch_num in range(start_epoch, start_epoch + self.EPOCHS):
             start_time = time.time()
@@ -122,7 +123,7 @@ class Network(nn.Module):
                 # print('loss ', loss)
 
                 ### Calculate loss for every 100 pairs
-                if ind % BATCH_SIZE == BATCH_SIZE-1:
+                if ind % self.BATCH_SIZE == self.BATCH_SIZE-1:
                     print('pair index', ind, 'loss', loss)
                     optimizer.zero_grad()
                     loss.backward()
@@ -131,11 +132,10 @@ class Network(nn.Module):
                     # print('Current run time: ', time.time() - start_time, ' sec')
                     # self.test(test_data, wordToVec)
                 if ind % 10000 == 9999:
-                    torch.save(self.state_dict(), './models/model_' + str(ind) + '.pt')
+                    torch.save(self.state_dict(), 'models/' + folder_prefix + '/model_' + str(ind) + '.pt')
                     print('Saved after time: ', time.time() - start_time, ' sec')
 
-            torch.save(self.state_dict(), './models/b' + str(BATCH_SIZE) + '/model_epoch_' + str(epoch_num)
-                + '_' + str(self.NN_HIDDEN_SIZE)+ '_' + str(self.LSTM_OUTPUT) + '.pt')
+            torch.save(self.state_dict(), 'models/' + folder_prefix + '/model_epoch_' + str(epoch_num) + '.pt')
             print('Model saved! Epoch run time: ', time.time() - start_time, ' sec')
             ## Adding decay to learning rate
             CUR_LR *= LR_DECAY
@@ -183,51 +183,29 @@ class Network(nn.Module):
         out, lstm_hidden = self.lstm(torch.tensor(temp_q_vec), lstm_hidden)
         return out[0][-1]
 
-    # ## Testing on test data for accuracy
-    # def test(self, test_data, wordToVec):
-    #     # start_time = time.time()
-    #     # print('test len ', len(test_data))
-    #     target = torch.LongTensor([[0], [1]])
-    #     # criterion = nn.CrossEntropyLoss()
-    #     false_pos = 0
-    #     false_neg = 0
-    #     correct = 0
-    #     # loss = 0
-    #     with torch.no_grad():
-    #         for (q1, q2, is_dup) in (test_data):
-    #             x = self.predict(q1, q2, wordToVec)
-    #             # loss += criterion(x.view(1, -1), target[is_dup])
-    #             if is_dup:
-    #                 if(x[0] > x[1]): false_neg += 1
-    #                 else : correct += 1
-    #             else:
-    #                 if(x[0] < x[1]): false_pos += 1
-    #                 else : correct += 1
-
-    #     print('********** Testing ***********')
-    #     print('Accuracy : ', correct/len(test_data), ' %')
-    #     print('False pos : ', false_pos/len(test_data), ' %')
-    #     print('False neg : ', false_neg/len(test_data), ' %')
-    #     # print('Loss on test data: ', loss.item())
-    #     print('******************************')
-    #     # print('Test ran for time : ', time.time() - start_time, ' sec')
-
 import sys
 import os
+import argparse
 
-BATCH_SIZE = 500
-## Training
-model = Network()
-start_epoch = 0
-## Loading saved model
-if (len(sys.argv) >= 2) :
-    print('Starting with model ' + sys.argv[1], ' at epoch ', sys.argv[2], ' with batchsize ', BATCH_SIZE)
-    model.load_state_dict(torch.load(sys.argv[1]))
-    start_epoch = int(sys.argv[2])
-    BATCH_SIZE = int(sys.argv[3])
+if __name__ == "__main__":
 
+    ## Take values through command line
+    my_parser = argparse.ArgumentParser(description='Passed arguments')
+    my_parser.add_argument('logfile',help='Log file name, doesnt need to include folder name',type=str)
+    my_parser.add_argument('-bs',help='Batch size',type=int,default=500)
+    my_parser.add_argument('-se',help='Start epoch',type=int,default=0)
+    my_parser.add_argument('-lhs',help='LSTM output size',type=int,default=300)
+    my_parser.add_argument('-nnhs',help='NN hidden size',type=int,default=512)
+    my_parser.add_argument('-eps',help='Total epochs to run',type=int,default=30)
 
-## Creating folder for storing models BATCH SIZE
-os.system("mkdir models/b" + str(BATCH_SIZE))
-model.train()
-model.forward(train_data, test_data, wordToVec, start_epoch, BATCH_SIZE)
+    args = my_parser.parse_args()
+    model = Network(batch_size=args.bs, lstm_out_size=args.lhs, nn_hid_size=args.nnhs, epochs=args.eps)
+    save_folder_name = str(args.bs) + '_' + str(args.lhs) + '_' + str(args.nnhs) + '_' + str(args.eps)
+
+    ## Creating folder for storing models BATCH SIZE
+    os.system("mkdir models/" + save_folder_name)
+    ## Logging all prints into log file
+    sys.stdout = open("models/" + save_folder_name + '/' + args.logfile, "a")
+    model.train()
+    model.forward(train_data, test_data, wordToVec, args.se, save_folder_name)
+    sys.stdout.close()

@@ -5,6 +5,8 @@ Finding Duplicate Questions on Quora
 
 * GloVe : https://github.com/stanfordnlp/GloVe
 
+* Word2Vec : https://code.google.com/archive/p/word2vec/
+
 * Presentation : https://docs.google.com/presentation/d/1sFNp2fqcNtPc4Wnpl50CgJRse-bthCU168SSn-i5YMI/edit?usp=sharing
 
 ## Setup
@@ -12,3 +14,7 @@ Finding Duplicate Questions on Quora
 For creating filtered.tsv
 * Download data and place in data/quora_duplicate_questions.tsv
 * run preproc.py
+
+## Comments
+
+* First word similarity, Weighted word similarity (based on idf), Graph techniques
