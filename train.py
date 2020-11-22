@@ -79,7 +79,7 @@ torch.manual_seed(0)
 
 ## Creating model
 class Network(nn.Module):
-    def __init__(self, lstm_out_size, nn_hid_size, epochs, batch_size):
+    def __init__(self, lstm_out_size, nn_hid_size, epochs, batch_size, sec_dense_len):
         super().__init__()
 
         self.LSTM_INPUT = 300
@@ -92,7 +92,9 @@ class Network(nn.Module):
         self.lstm = nn.LSTM(self.LSTM_INPUT, self.LSTM_OUTPUT, 1, bias = False, batch_first = True)
 
         # self.hidden = [nn.Linear(self.LSTM_OUTPUT * 2, self.NN_HIDDEN_SIZE), nn.Linear(self.NN_HIDDEN_SIZE, 2)]
-        self.dense = [nn.Linear(self.LSTM_OUTPUT * 4, self.NN_HIDDEN_SIZE), nn.Linear(self.NN_HIDDEN_SIZE, 2)]
+        self.dense = [nn.Linear(self.LSTM_OUTPUT * 4, self.NN_HIDDEN_SIZE), 
+                            nn.Linear(self.NN_HIDDEN_SIZE, sec_dense_len),
+                            nn.Linear(sec_dense_len, 2)]
         ### actual of lstm outputs + sq_diff + hadamard product + lengths of lstm outputs + sq_euclid_dist
         self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=0)
@@ -164,14 +166,14 @@ class Network(nn.Module):
         had_prod = torch.mul(q1_out, q2_out)
 
         # Add difference and other inputs here
-        nn_input = torch.cat((q1_out, q2_out, sq_diff, had_prod))
-        # nn_input = torch.cat((q1_out, q2_out, q1_len, q2_len, sq_diff, sq_euc_dist, had_prod))
-        # nn_input = torch.cat((q1_out, q2_out))
-        x = self.dense[0](nn_input)
-        # print('nn hiden 0 out ', x.shape)
-        x = self.sigmoid(x)
+        x = torch.cat((q1_out, q2_out, sq_diff, had_prod))
+        # Loop through layers except last
+        for layer in self.dense[:-1]:
+            x = layer(x)
+            # print('nn hiden 0 out ', x.shape)
+            x = self.sigmoid(x)
         # print('sig out ', x.shape)
-        x = self.dense[1](x)
+        x = self.dense[-1](x)
         x = self.softmax(x)
         return x
 
@@ -196,11 +198,12 @@ if __name__ == "__main__":
     my_parser.add_argument('-se',help='Start epoch',type=int,default=0)
     my_parser.add_argument('-lhs',help='LSTM output size',type=int,default=300)
     my_parser.add_argument('-nnhs',help='NN hidden size',type=int,default=512)
+    my_parser.add_argument('-sdl',help='2nd dense layer size',type=int,default=32)
     my_parser.add_argument('-eps',help='Total epochs to run',type=int,default=30)
 
     args = my_parser.parse_args()
-    model = Network(batch_size=args.bs, lstm_out_size=args.lhs, nn_hid_size=args.nnhs, epochs=args.eps)
-    save_folder_name = str(args.bs) + '_' + str(args.lhs) + '_' + str(args.nnhs) + '_' + str(args.eps)
+    model = Network(batch_size=args.bs, lstm_out_size=args.lhs, nn_hid_size=args.nnhs, epochs=args.eps, sec_dense_len=args.sdl)
+    save_folder_name = str(args.bs) + '_' + str(args.lhs) + '_' + str(args.nnhs) + '_' + str(args.eps) + '_' + str(args.sdl)
 
     ## Creating folder for storing models BATCH SIZE
     os.system("mkdir models/" + save_folder_name)
