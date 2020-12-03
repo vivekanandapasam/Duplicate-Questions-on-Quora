@@ -1,5 +1,9 @@
-python3 train.py -logfile crcted.txt -nnhs 1024 -lhs 300 -bs 500 -eps 20 -sdl 512
-python3 train.py -logfile crcted.txt -nnhs 512 -lhs 300 -bs 500 -eps 20 -sdl 256
-python3 train.py -logfile crcted.txt -nnhs 1024 -lhs 300 -bs 150 -eps 30 -sdl 256
-python3 train.py -logfile crcted.txt -nnhs 512 -lhs 400 -bs 150 -eps 30 -sdl 128
+python3 train.py -logfile 5test.txt -nnhs 1000 -bs 500 -eps 25
+python3 test.py -logfile res_test5.txt -nnhs 1000 -bs 500 -eps 25
+python3 train.py -logfile 51test.txt -nnhs 1000 -bs 500 -eps 25 -weisc 1
+python3 test.py -logfile res_test51.txt -nnhs 1000 -bs 500 -eps 25 -weisc 1
+python3 train.py -logfile 5test.txt -nnhs 1200 -bs 500 -eps 25 -weisc 1
+python3 test.py -logfile res_test5.txt -nnhs 1200 -bs 500 -eps 25 -weisc 1
+python3 train.py -logfile 51test.txt -nnhs 1200 -bs 500 -eps 25 -weisc 0.9
+python3 test.py -logfile res_test51.txt -nnhs 1200 -bs 500 -eps 25 -weisc 0.9
 
